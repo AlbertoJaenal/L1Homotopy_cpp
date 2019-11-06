@@ -9,7 +9,9 @@ the algorithm.
 #include <fstream>
 #include <memory>
 
+#include "Solver_homotopy.hpp"
 #include "DS_homotopy.h"
+#include "BPDN_homotopy.h"
 
 using namespace std;
 
@@ -82,8 +84,6 @@ Eigen::VectorXd readCSV(std::string file, int rows) {
 
 int main(int argc, char *argv[]) 
 {
-	std::unique_ptr<DSHomotopy> solver;
-	solver.reset( new DSHomotopy(1e-4, 100, true));
 	
 	const size_t M = 250;
 	const size_t N = 512;
@@ -92,10 +92,16 @@ int main(int argc, char *argv[])
 	Eigen::VectorXd b = readCSV("../test/data/y_MATLAB.csv", M);
     
 	Eigen::VectorXd X2;
-	solver->solveHomotopy(b, A, X2);
-	//solver->solveHomotopy_primal(b, A, X2, 0.5);
     
-    std::cout << "\nThe norm of the error is " << (X2 - x).norm();
+    
+	std::unique_ptr<SolverHomotopy> solver;
+	solver.reset( new DSHomotopy(1e-4, 100, true));
+	solver->solveHomotopy(b, A, X2);    
+    std::cout << "\nThe norm of the error with DS is " << (X2 - x).norm();
+    
+	solver.reset( new BPDNHomotopy(1e-4, 10000, true));
+	solver->solveHomotopy(b, A, X2);    
+    std::cout << "\nThe norm of the error with BPDN is " << (X2 - x).norm();
 	
 	return -1;
 }

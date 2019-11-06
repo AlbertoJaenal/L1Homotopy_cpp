@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8)
-project(l1homotopy++)
+project(l1homotopy_cpp)
 
 ## Set build type to Release by default
 if(NOT CMAKE_BUILD_TYPE)
@@ -35,10 +35,11 @@ include_directories(
 # Set source files 
 list(APPEND SOURCEFILES
     src/DS_homotopy.cpp
+    src/BPDN_homotopy.cpp
 )
-add_library( l1homotopy++ SHARED ${SOURCEFILES} )
-target_link_libraries( l1homotopy++ ${EIGEN3_LIBS} )
+add_library( l1homotopy_cpp SHARED ${SOURCEFILES} )
+target_link_libraries( l1homotopy_cpp ${EIGEN3_LIBS} )
 
 add_executable(test1 test/test_MATLAB.cpp)
-target_link_libraries( test1 l1homotopy++ )
+target_link_libraries( test1 l1homotopy_cpp )
 

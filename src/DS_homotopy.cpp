@@ -1,4 +1,4 @@
-#include <DS_homotopy.h>
+#include "DS_homotopy.h"
 
 #include <iostream>
 #include <iomanip>
@@ -6,272 +6,10 @@
 #include <chrono>
 
 
-void DSHomotopy::solveHomotopy_primal(const Eigen::VectorXd &y, const Eigen::MatrixXd &A, Eigen::VectorXd& xk_1, double search_lambda)
-{
-    std::chrono::steady_clock::time_point t0, t1, t2;
-    double time;
-    if (verbose)
-    {
-        std::cout << std::setprecision(5) << std::fixed;
-        t0 = std::chrono::steady_clock::now();
-    }
-    
-    m = A.rows();
-    n = A.cols();
-    
-    // Initialization of primal and dual sign and support
-    z_x.setZero(n);
-    z_lambda.setZero(n);
-    gamma_x.clear(); //Primal support
-    gamma_lambda.clear();  //Dual support
-        
-    // Initial step
-    Eigen::VectorXd Primal_constrk = -A.transpose() * y;    
-    int i; 
-    double c = Primal_constrk.array().abs().maxCoeff(&i); 
-    
-    std::vector<int> gamma_xk = {i};
-    std::vector<int> gamma_lambdak = {i};
-    
-    z_lambda(gamma_lambdak[0]) = sign(Primal_constrk(gamma_lambdak[0]));
-    epsilon = c;
-    Primal_constrk(gamma_lambdak[0]) = sign(Primal_constrk(gamma_lambdak[0])) * epsilon;
-    xk_1.setZero(n); // Final primal Solution
-    
-    Eigen::VectorXd lambdak_1 = Eigen::VectorXd::Zero(n);
-    lambdak_1(gamma_lambdak[0]) = 1 / (A.col(gamma_lambdak[0]).transpose() * A.col(gamma_lambdak[0])) * z_lambda(gamma_lambdak[0]);
-    
-    // ALL DUAL VARIABLES ARE CROPPED
-    lambda_k.resize(0); lambda_k.setZero(n);
-    
-    // Loop variables
-    int iteration = 0;
-    double data_precision = 2.2204e-16; // MATLAB precision
-    double old_delta = 0;
-    int count_delta_stop = 0;
-    
-    double epsilon_old;
-    double minEps;
-    int new_lambda;
-    double residual;
-    double residual_old = 0;
-    
-    // Primal update variables
-    int out_x;
-    int outx_index, outl_index;
-    double delta;
-    int i_delta;
-    
-    // Primal increments
-	Eigen::VectorXd dk;    
-
-    // Auxiliar variables
-    //Eigen::VectorXd del_x;    
-	Eigen::VectorXd pk_temp;
-    Eigen::MatrixXd iAtgxAgl_ij,  AtgxAgl_ij;
-	Eigen::VectorXd temp_row, temp_col;
-    Eigen::VectorXd residual_aux;
-    Eigen::VectorXd Agdelx;
-    
-    Eigen::MatrixXd AtglAgx = Eigen::MatrixXd::Zero(gamma_lambdak.size(), gamma_xk.size()); 
-    Eigen::MatrixXd iAtglAgx = Eigen::MatrixXd::Zero(gamma_lambdak.size(), gamma_xk.size()); 
-    Eigen::MatrixXd AtgxAgl = Eigen::MatrixXd::Zero(gamma_lambdak.size(), gamma_xk.size()); 
-    Eigen::MatrixXd iAtgxAgl = Eigen::MatrixXd::Zero(gamma_lambdak.size(), gamma_xk.size()); 
-    
-    AtglAgx(0, 0) = A.col(gamma_lambdak[0]).dot(A.col(gamma_xk[0]));
-    iAtglAgx(0, 0) = 1 / AtglAgx(0, 0);
-    AtglAgx(0, 0) = AtglAgx(0, 0);
-    iAtgxAgl(0, 0) = iAtglAgx(0, 0);
-    
-    if (verbose)
-    {
-        t1 = std::chrono::steady_clock::now();
-        time = std::chrono::duration_cast<std::chrono::duration<double> >(t1 - t0).count();
-        std::cout << "\tInitialization: " << time << std::endl;
-    }
-    
-    while (iteration < maxIter)
-    {
-        if (verbose){t1 = std::chrono::steady_clock::now();}
-        iteration++;
-                
-        // gamma_x = gamma_xk;
-        gamma_x.clear(); 
-        copy(gamma_xk.begin(), gamma_xk.end(), back_inserter(gamma_x)); 
-        
-        // gamma_lambda = gamma_lambdak;
-        gamma_lambda.clear(); 
-        copy(gamma_lambdak.begin(), gamma_lambdak.end(), back_inserter(gamma_lambda)); 
-        
-        // z_lambda = z_lambdak; UNUSED
-        // z_x = z_xk; UNUSED
-
-        x_k.resize(0); x_k = xk_1;
-        lambda_k.resize(0); lambda_k = lambdak_1; 
-        
-        /////////////////
-        // Update on x //
-        /////////////////
-        tempD.resize(0); tempD.setZero(gamma_lambda.size());
-        del_x_vec.resize(0); del_x_vec.setZero(n);
-                
-        //Update direction
-        for(size_t k = 0; k < gamma_lambda.size(); k++) {tempD(k) = z_lambda[gamma_lambda[k]];}
-        
-        for(size_t k = 0; k < gamma_x.size(); k++) {del_x_vec[gamma_x[k]] = -iAtglAgx.row(k).dot(tempD);}
-
-        
-        if (verbose)
-        {
-            t2 = std::chrono::steady_clock::now();
-            time = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
-        }
-        
-        // BOTTLENECK!!
-        dk.resize(0);
-        dk.setZero(n);
-        
-        Agdelx.resize(0);
-        Agdelx.setZero(m);
-        for(size_t k = 0; k < gamma_x.size(); k++) {Agdelx.noalias() += A.col(gamma_x[k]) * del_x_vec[gamma_x[k]];}
-        dk = A.transpose().lazyProduct(Agdelx);
-        
-        ////// Precision control
-        pk_temp.resize(0); pk_temp = Primal_constrk;
-        minEps = epsilon < data_precision * 2 ? epsilon : data_precision * 2;
-        
-        for(int k = 0 ; k < n; k++)
-        {
-            if (fabs(fabs(Primal_constrk(k))-epsilon) < minEps)
-                {pk_temp[k] = sign(Primal_constrk(k)) * epsilon;}
-        }
-        
-        xk_temp = x_k;
-        xk_temp.unaryExpr([&](double x) {return (fabs(x) < data_precision)? 0 : x;});
-        
-        update_primal(outx_index, delta, i_delta, pk_temp, dk);
-        
-        if ((old_delta < 4*data_precision) & (delta < 4*data_precision)) {count_delta_stop = count_delta_stop + 1;}
-        else {count_delta_stop = 0;}
-        
-        if (count_delta_stop >= 50)
-        {
-            std::cerr << "\nStuck in some corner\n";
-            break;
-        }
-        
-        // Update variables
-        old_delta = delta;
-        xk_1 = x_k;
-        xk_1.noalias() += delta*del_x_vec;
-        Primal_constrk.noalias() += delta*dk;
-        epsilon_old = epsilon;
-        epsilon = epsilon - delta;     
-        
-       if (verbose) { std::cout << "\tEpsilon: " << epsilon;}
-        
-        if (epsilon < tolerance)
-        {
-            xk_1 = x_k;
-            xk_1.noalias() += + (epsilon_old - tolerance) * del_x_vec;
-            break;
-        }
-            //std::cout << std::endl << iteration << " (" << epsilon << ")";
-        
-        if (outx_index == -1)
-        {
-            // If a dual constraint becomes active, i_delta is its index
-            if (verbose) {std::cout << "\tPrimal Add " << i_delta << "!";}
-            gamma_lambdak.clear();
-            copy(gamma_lambda.begin(), gamma_lambda.end(), back_inserter(gamma_lambdak)); 
-            gamma_lambdak.push_back(i_delta);
-            new_lambda = i_delta;
-            lambda_k(new_lambda) = 0;
-        }
-        else
-        {
-            // If an element is removed from gamma_x, out_x is the element to remove (outx_index is its index)
-            if (verbose) {std::cout << "\tPrimal Rem " << gamma_x[outx_index] << "!";}
-            std::vector<int> gl_old(gamma_lambda);
-            std::vector<int> gx_old(gamma_x);
-            
-            out_x = gamma_x[outx_index];
-            gamma_x[outx_index] = gamma_x[gamma_x.size() - 1];
-            gamma_x[gamma_x.size() - 1] = out_x;
-            gamma_x.pop_back();// = gamma_x(1:end-1);
-            
-            double maxval = iAtgxAgl.block(0, 0, gamma_lambdak.size(), gamma_xk.size()).col(outx_index).cwiseAbs().maxCoeff(&outl_index); 
-            new_lambda = gamma_lambda[outl_index];
-            
-            gamma_lambda[outl_index] = gamma_lambda[gamma_lambda.size() - 1];
-            gamma_lambda[gamma_lambda.size() - 1] = new_lambda;
-            
-            gamma_lambdak.clear();
-            copy(gamma_lambda.begin(), gamma_lambda.end(), back_inserter(gamma_lambdak)); 
-            gamma_lambda.pop_back();
-            
-            // outx_index: ith row of A is swapped with last row (out_x)
-            // outl_index: jth column of A is swapped with last column (out_lambda)
-            
-            AtgxAgl_ij = AtgxAgl.eval();
-            temp_row = AtgxAgl_ij.row(outx_index);
-            temp_col = AtgxAgl_ij.col(outl_index);
-            AtgxAgl_ij.block(outx_index, 0, AtgxAgl_ij.rows() - outx_index, AtgxAgl_ij.cols()).noalias() = AtgxAgl_ij.block(outx_index + 1,0,AtgxAgl_ij.rows() - outx_index,AtgxAgl_ij.cols());
-            AtgxAgl_ij.block(0, outl_index, AtgxAgl_ij.rows(), AtgxAgl_ij.cols() - outl_index).noalias() = AtgxAgl_ij.block(0,outl_index + 1,AtgxAgl_ij.rows(),AtgxAgl_ij.cols() - outl_index);
-            AtgxAgl_ij.row(AtgxAgl_ij.rows() - 1) = temp_row;
-            AtgxAgl_ij.col(AtgxAgl_ij.cols() - 1) = temp_col;
-            
-            // Lost rows and columns needed for the inversion
-            iAtgxAgl_ij = iAtgxAgl.eval();
-            temp_row = iAtgxAgl_ij.row(outl_index);
-            temp_col = iAtgxAgl_ij.col(outx_index);
-            iAtgxAgl_ij.block(outl_index, 0, iAtgxAgl_ij.rows() - outl_index, iAtgxAgl_ij.cols()).noalias() = iAtgxAgl_ij.block(outl_index + 1,0, iAtgxAgl_ij.rows() - outl_index, iAtgxAgl_ij.cols());
-            iAtgxAgl_ij.block(0, outx_index, iAtgxAgl_ij.rows(), iAtgxAgl_ij.cols() - outx_index).noalias() = iAtgxAgl_ij.block(0,outx_index + 1, iAtgxAgl_ij.rows(), iAtgxAgl_ij.cols() - outx_index);
-            iAtgxAgl_ij.row(iAtgxAgl_ij.rows() - 1) = temp_row;
-            iAtgxAgl_ij.col(iAtgxAgl_ij.cols() - 1) = temp_col;
-            
-            AtgxAgl = AtgxAgl_ij.block(0, 0, gamma_lambda.size(), gamma_x.size());
-            AtglAgx = AtgxAgl.transpose();
-            update_inverse(AtgxAgl_ij, iAtgxAgl_ij, iAtgxAgl, 2);
-
-            iAtglAgx = iAtgxAgl.transpose();
-            xk_1(outx_index) = 0;
-        }
-        
-        residual_aux.setZero(m);
-        for (auto const &g_lk: gamma_lambdak)
-        { 
-            Primal_constrk(g_lk) = sign(Primal_constrk(g_lk))*epsilon;
-            // Reconstruction
-            residual_aux.noalias() += A.col(g_lk) * xk_1(g_lk);
-        }
-        
-        residual = (residual_aux - y).squaredNorm()/2 + search_lambda * xk_1.lpNorm<1>();
-        
-        if (verbose)
-        {
-            t2 = std::chrono::steady_clock::now();
-            time = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
-            std::cout << "\t It: " << time << "\tResidual: " << residual << std::endl;
-        }
-        
-        if(abs(residual - residual_old) < tolerance)
-            {break;}
-        residual_old = residual;
-    }
-    
-    if (verbose)
-    {
-        t2 = std::chrono::steady_clock::now();
-        time = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t0).count();
-        std::cout << "\t Total: " << time << std::endl;
-    }
-}
-
 void DSHomotopy::solveHomotopy(const Eigen::VectorXd &y, const Eigen::MatrixXd &A, Eigen::VectorXd& xk_1)
 {
     std::chrono::steady_clock::time_point t0, t1, t2;
-    double time;
+    double time = 0;
     if (verbose)
     {
         std::cout << std::setprecision(5) << std::fixed;
@@ -294,7 +32,7 @@ void DSHomotopy::solveHomotopy(const Eigen::VectorXd &y, const Eigen::MatrixXd &
     
     std::vector<int> gamma_xk = {i};
     std::vector<int> gamma_lambdak = {i};
-    if (verbose) {std::cout << "\n\t\t\t\t\t\t\t\tP Added " << i << "!" << "\tD Added " << i << "!";}
+    if (verbose) {std::cout << "\n\tPrimal Add " << i << "!" << "\tDual Add " << i << "!";}
     
     z_lambda(gamma_lambdak[0]) = sign(Primal_constrk(gamma_lambdak[0]));
     epsilon = c;
@@ -444,10 +182,11 @@ void DSHomotopy::solveHomotopy(const Eigen::VectorXd &y, const Eigen::MatrixXd &
         
        if (verbose) { std::cout << " --It: " << iteration << " Epsilon: " << epsilon;}
         
-        if (epsilon < tolerance)
+        if (epsilon < threshold)
         {
+            //Primal_constrk.noalias() += (epsilon_old - threshold) * dk;
             xk_1 = x_k;
-            xk_1.noalias() += + (epsilon_old - tolerance) * del_x_vec;
+            xk_1.noalias() += + (epsilon_old - threshold) * del_x_vec;
             break;
         }
             //std::cout << std::endl << iteration << " (" << epsilon << ")";
@@ -474,7 +213,7 @@ void DSHomotopy::solveHomotopy(const Eigen::VectorXd &y, const Eigen::MatrixXd &
             gamma_x[gamma_x.size() - 1] = out_x;
             gamma_x.pop_back();// = gamma_x(1:end-1);
             
-            double maxval = iAtgxAgl.block(0, 0, gamma_lambdak.size(), gamma_xk.size()).col(outx_index).cwiseAbs().maxCoeff(&outl_index); 
+            iAtgxAgl.block(0, 0, gamma_lambdak.size(), gamma_xk.size()).col(outx_index).cwiseAbs().maxCoeff(&outl_index); 
             new_lambda = gamma_lambda[outl_index];
             
             gamma_lambda[outl_index] = gamma_lambda[gamma_lambda.size() - 1];
@@ -673,7 +412,7 @@ void DSHomotopy::solveHomotopy(const Eigen::VectorXd &y, const Eigen::MatrixXd &
     {
         t2 = std::chrono::steady_clock::now();
         time = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t0).count();
-        std::cout << "\t Total: " << time << std::endl;
+        std::cout << "\n\t Total: " << time << " s" << std::endl;
     }
 }
 
