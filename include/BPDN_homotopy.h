@@ -30,6 +30,7 @@ class BPDNHomotopy : public SolverHomotopy
     
 public:
 	BPDNHomotopy() : threshold(0.01), maxIter(100), verbose(false){}
+	virtual ~BPDNHomotopy(){};
 
 	BPDNHomotopy(double thres, int mIter) : maxIter(mIter), threshold(thres)
 		{verbose = false;}

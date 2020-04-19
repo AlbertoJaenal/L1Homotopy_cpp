@@ -31,6 +31,7 @@ class DSHomotopy : public SolverHomotopy
 	
 public:
 	DSHomotopy() : threshold(0.001), maxIter(100), verbose(false){}
+	virtual ~DSHomotopy(){};
 
 	DSHomotopy(double thres, int mIter) : threshold(thres), maxIter(mIter)
 		{verbose = false;}
